@@ -1,0 +1,128 @@
+name: Sync copilot-instructions.md (Reusable Workflow)
+
+on:
+  workflow_call:
+    inputs:
+      source_repo:
+        description: 'Source repository (owner/repo)'
+        required: true
+        type: string
+      source_path:
+        description: 'Path to source file in source repository'
+        required: true
+        type: string
+      target_repo:
+        description: 'Target repository (owner/repo)'
+        required: true
+        type: string
+      target_path:
+        description: 'Path to target file in target repository'
+        required: true
+        type: string
+      source_branch:
+        description: 'Source branch to sync from'
+        required: false
+        type: string
+        default: 'main'
+      target_branch:
+        description: 'Target branch to sync to'
+        required: false
+        type: string
+        default: 'main'
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_KEY }}
+          # Scope the token to the owner so it can access both the source and
+          # target repositories the App is installed on.
+          owner: ${{ github.repository_owner }}
+
+      - name: Checkout source repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.source_repo }}
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ inputs.source_branch }}
+
+      - name: Setup git config
+        run: |
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "GitHub Actions Bot"
+
+      - name: Sync file to target repository
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          # Create temporary directory for target repo
+          TEMP_DIR=$(mktemp -d)
+          cd "$TEMP_DIR"
+
+          # Clone target repository
+          echo "Cloning target repository: ${{ inputs.target_repo }}"
+          git clone -b ${{ inputs.target_branch }} https://x-access-token:${APP_TOKEN}@github.com/${{ inputs.target_repo }}.git .
+
+          # Configure git
+          git config user.email "github-actions@github.com"
+          git config user.name "GitHub Actions Bot"
+
+          # Ensure target directory exists
+          mkdir -p "$(dirname "${{ inputs.target_path }}")"
+
+          # Copy the file from source
+          echo "Copying file from ${{ inputs.source_repo }}:${{ inputs.source_path }}"
+          cp "${{ github.workspace }}/${{ inputs.source_path }}" "${{ inputs.target_path }}"
+
+          # Create a unique branch name for this sync
+          BRANCH_NAME="sync/copilot-instructions-$(date +%s)"
+          echo "Creating branch: $BRANCH_NAME"
+          git checkout -b "$BRANCH_NAME"
+
+          # Stage and commit the changes
+          git add "${{ inputs.target_path }}"
+
+          # Create commit message with metadata
+          COMMIT_MSG="Sync ${{ inputs.target_path }} from ${{ inputs.source_repo }}
+
+          Triggered by: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Source Commit: ${{ github.sha }}
+          Timestamp: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+          git commit -m "$COMMIT_MSG"
+
+          # Push the branch to target repository
+          echo "Pushing branch to target repository..."
+          git push origin "$BRANCH_NAME"
+
+          # Create pull request using gh CLI
+          echo "Creating pull request..."
+          gh pr create \
+            --repo ${{ inputs.target_repo }} \
+            --title "[AUTO] Sync ${{ inputs.target_path }} from ${{ inputs.source_repo }}" \
+            --body "## Automated Sync from ${{ inputs.source_repo }}
+
+          This pull request syncs the latest file from the **${{ inputs.source_repo }}** repository.
+
+          ### Details
+          - **Source Repository:** [${{ inputs.source_repo }}](https://github.com/${{ inputs.source_repo }})
+          - **Source File:** \`${{ inputs.source_path }}\`
+          - **Target File:** \`${{ inputs.target_path }}\`
+          - **Triggering Commit:** [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+          - **Workflow Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - **Timestamp:** $(date -u +'%Y-%m-%d %H:%M:%S UTC')
+
+          ### Action Required
+          Please review the changes and merge this PR to keep ${{ inputs.target_repo }} in sync." \
+            --base ${{ inputs.target_branch }} \
+            --head "$BRANCH_NAME"
+
+          echo "✅ Pull request created successfully!"
+          # Clean up temp directory
+          cd /
+          rm -rf "$TEMP_DIR"

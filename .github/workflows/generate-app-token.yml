@@ -1,0 +1,53 @@
+name: Generate GitHub App Token (Reusable Workflow)
+
+# Reusable workflow that mints a short-lived GitHub App installation access
+# token and exposes it as an output. Other workflows call this to obtain
+# cross-repo access without any long-lived PAT.
+#
+# Requires (stored in ETK-Workflows / org):
+#   - vars.APP_ID     : GitHub App ID
+#   - secrets.APP_KEY : GitHub App private key (PEM)
+#
+# The token is short-lived (expires when the run finishes / after ~1h) and is
+# scoped only to the repositories the App is installed on.
+
+on:
+  workflow_call:
+    inputs:
+      owner:
+        description: 'Owner (org/user) the token should be scoped to. Defaults to the current repository owner.'
+        required: false
+        type: string
+        default: ${{ github.repository_owner }}
+      repositories:
+        description: 'Comma or newline separated list of repository names (without owner) to scope the token to. Empty = all repos the App can access for the owner.'
+        required: false
+        type: string
+        default: ''
+    outputs:
+      token:
+        description: 'Short-lived GitHub App installation access token.'
+        value: ${{ jobs.generate-token.outputs.token }}
+      installation-id:
+        description: 'The App installation ID the token was generated for.'
+        value: ${{ jobs.generate-token.outputs.installation-id }}
+      app-slug:
+        description: 'The slug of the GitHub App the token belongs to.'
+        value: ${{ jobs.generate-token.outputs.app-slug }}
+
+jobs:
+  generate-token:
+    runs-on: ubuntu-latest
+    outputs:
+      token: ${{ steps.app-token.outputs.token }}
+      installation-id: ${{ steps.app-token.outputs.installation-id }}
+      app-slug: ${{ steps.app-token.outputs.app-slug }}
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_KEY }}
+          owner: ${{ inputs.owner }}
+          repositories: ${{ inputs.repositories }}
