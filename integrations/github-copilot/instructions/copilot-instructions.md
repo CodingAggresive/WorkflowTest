@@ -1,0 +1,11 @@
+# Copilot Instructions
+
+When performing a code review, apply the following rules to all C# code:
+
+- Flag any C# method that is missing XML documentation comments (`<summary>`, `<param>`, `<returns>`).
+- Flag any C# identifier that does not follow Microsoft C# naming conventions (PascalCase for methods/classes, camelCase for locals).
+- Flag any method longer than 30 lines as needing refactoring.
+- Flag any public API method or class that lacks corresponding unit test coverage.
+- Flag any class that has public fields instead of properties.
+- Flag any method that has more than 4 parameters as needing refactoring.
+- Flag any method that has cyclomatic complexity greater than 10 as needing refactoring.
